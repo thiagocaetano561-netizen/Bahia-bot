@@ -7,7 +7,10 @@
       "Bash(git add:*)",
       "Bash(git remote add:*)",
       "Bash(git remote set-url:*)",
-      "Bash(git commit -m \"$(cat <<''EOF''\nInitial commit - BAHIA LT Bot\n\nSistema completo de gerenciamento de notas fiscais e motoristas para Discord.\n\nFuncionalidades:\n- Sistema de registro de motoristas com aprovação administrativa\n- Geração de crachás virtuais personalizados\n- Envio e aprovação de notas fiscais\n- Ranking de motoristas por ganhos\n- Sistema de logs de ações\n\nPronto para deploy 24/7 no Shard Cloud.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n)\")"
+      "Bash(git commit -m \"$(cat <<''EOF''\nInitial commit - BAHIA LT Bot\n\nSistema completo de gerenciamento de notas fiscais e motoristas para Discord.\n\nFuncionalidades:\n- Sistema de registro de motoristas com aprovação administrativa\n- Geração de crachás virtuais personalizados\n- Envio e aprovação de notas fiscais\n- Ranking de motoristas por ganhos\n- Sistema de logs de ações\n\nPronto para deploy 24/7 no Shard Cloud.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(git branch:*)",
+      "Bash(git push:*)",
+      "Bash(git commit:*)"
     ]
   }
 }
