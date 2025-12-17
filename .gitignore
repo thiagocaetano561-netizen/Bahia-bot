@@ -1,0 +1,22 @@
+# Variáveis de ambiente (NUNCA commitar!)
+.env
+
+# Banco de dados
+*.db
+
+# Node modules
+node_modules/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
