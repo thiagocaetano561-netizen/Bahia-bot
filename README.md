@@ -73,7 +73,7 @@ npm start
 
 ### Opção 1: Shard Cloud (Recomendado para Discord Bots)
 
-1. Acesse [shardcloud.com](https://shardcloud.com) e crie uma conta
+1. Acesse [shardcloud.app](https://shardcloud.app) e crie uma conta
 2. Faça o upload do projeto ou conecte via GitHub:
    - **Via Upload Manual:**
      - Compacte a pasta do projeto (sem node_modules)
