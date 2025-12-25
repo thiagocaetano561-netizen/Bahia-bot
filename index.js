@@ -817,6 +817,278 @@ Você tem **5 minutos** para enviar as informações.`);
         });
     }
 
+    if (cmd === "dashboard") {
+        if (!msg.member.permissions.has(PermissionFlagsBits.Administrator)) {
+            return msg.reply("❌ Apenas administradores podem ver o dashboard.");
+        }
+
+        db.get(`SELECT COUNT(*) as total FROM motoristas_aprovados WHERE status = 'ativo'`, (err, motoristas) => {
+            db.get(`SELECT COUNT(*) as total, SUM(valor) as total_valor, SUM(distancia) as total_km FROM viagens`, (err, viagens) => {
+                db.get(`SELECT COUNT(*) as total, SUM(valor_prejuizo) as total_prejuizo FROM prejuizos`, (err, prejuizos) => {
+                    db.get(`SELECT COUNT(*) as nf_pendentes FROM viagens_pendentes WHERE status = 'pendente'`, (err, nfPendentes) => {
+                        db.get(`SELECT COUNT(*) as prejuizos_pendentes FROM prejuizos_pendentes WHERE status = 'pendente'`, (err, prejPendentes) => {
+                            db.all(`SELECT motorista, ganhos FROM ranking ORDER BY ganhos DESC LIMIT 3`, (err, topMotoristas) => {
+
+                                const totalViagens = viagens?.total || 0;
+                                const totalValor = viagens?.total_valor || 0;
+                                const totalKm = viagens?.total_km || 0;
+                                const totalPrejuizo = prejuizos?.total_prejuizo || 0;
+                                const lucroLiquido = totalValor - totalPrejuizo;
+                                const ticketMedio = totalViagens > 0 ? totalValor / totalViagens : 0;
+
+                                let topText = "";
+                                if (topMotoristas && topMotoristas.length > 0) {
+                                    topMotoristas.forEach((m, i) => {
+                                        const medals = ["🥇", "🥈", "🥉"];
+                                        topText += `${medals[i]} ${m.motorista} - R$ ${m.ganhos.toFixed(2)}\n`;
+                                    });
+                                } else {
+                                    topText = "Nenhum motorista no ranking ainda";
+                                }
+
+                                const embed = new EmbedBuilder()
+                                    .setTitle("📊 DASHBOARD GERAL — BAHIA LT")
+                                    .setColor("Gold")
+                                    .setDescription("Visão completa das operações da empresa")
+                                    .addFields(
+                                        { name: "👥 Motoristas Ativos", value: `${motoristas?.total || 0} motoristas`, inline: true },
+                                        { name: "🚚 Total de Viagens", value: `${totalViagens} viagens`, inline: true },
+                                        { name: "🛣️ Km Rodados", value: `${totalKm.toLocaleString('pt-BR')} km`, inline: true },
+                                        { name: "💰 Receita Total", value: `R$ ${totalValor.toFixed(2)}`, inline: true },
+                                        { name: "⚠️ Prejuízos Total", value: `R$ ${totalPrejuizo.toFixed(2)}`, inline: true },
+                                        { name: "💵 Lucro Líquido", value: `R$ ${lucroLiquido.toFixed(2)}`, inline: true },
+                                        { name: "📈 Ticket Médio", value: `R$ ${ticketMedio.toFixed(2)}`, inline: true },
+                                        { name: "⏳ NF Pendentes", value: `${nfPendentes?.nf_pendentes || 0}`, inline: true },
+                                        { name: "⚠️ Prejuízos Pendentes", value: `${prejPendentes?.prejuizos_pendentes || 0}`, inline: true },
+                                        { name: "🏆 Top 3 Motoristas", value: topText, inline: false }
+                                    )
+                                    .setFooter({ text: "Dados atualizados em tempo real" })
+                                    .setTimestamp();
+
+                                msg.reply({ embeds: [embed] });
+                            });
+                        });
+                    });
+                });
+            });
+        });
+    }
+
+    if (cmd === "relatorio-mensal") {
+        if (!msg.member.permissions.has(PermissionFlagsBits.Administrator)) {
+            return msg.reply("❌ Apenas administradores podem ver relatórios.");
+        }
+
+        const mes = args[0];
+        const ano = args[1] || new Date().getFullYear();
+
+        if (!mes || isNaN(mes) || mes < 1 || mes > 12) {
+            return msg.reply("❌ **Uso correto:** `!relatorio-mensal MES [ANO]`\n**Exemplo:** `!relatorio-mensal 12 2024`");
+        }
+
+        const mesFormatado = mes.toString().padStart(2, '0');
+        const dataInicio = `${ano}-${mesFormatado}-01`;
+        const dataFim = `${ano}-${mesFormatado}-31`;
+
+        db.get(`
+            SELECT COUNT(*) as total, SUM(valor) as total_valor, SUM(distancia) as total_km
+            FROM viagens
+            WHERE date(data_aprovacao) BETWEEN ? AND ?
+        `, [dataInicio, dataFim], (err, viagens) => {
+            db.get(`
+                SELECT COUNT(*) as total, SUM(valor_prejuizo) as total_prejuizo
+                FROM prejuizos
+                WHERE date(data_aprovacao) BETWEEN ? AND ?
+            `, [dataInicio, dataFim], (err, prejuizos) => {
+                db.all(`
+                    SELECT motorista, COUNT(*) as viagens, SUM(valor) as ganhos
+                    FROM viagens
+                    WHERE date(data_aprovacao) BETWEEN ? AND ?
+                    GROUP BY motorista_id
+                    ORDER BY ganhos DESC
+                    LIMIT 5
+                `, [dataInicio, dataFim], (err, topMotoristas) => {
+
+                    const totalViagens = viagens?.total || 0;
+                    const totalValor = viagens?.total_valor || 0;
+                    const totalKm = viagens?.total_km || 0;
+                    const totalPrejuizo = prejuizos?.total_prejuizo || 0;
+                    const lucroLiquido = totalValor - totalPrejuizo;
+
+                    let topText = "";
+                    if (topMotoristas && topMotoristas.length > 0) {
+                        topMotoristas.forEach((m, i) => {
+                            topText += `**${i + 1}º** ${m.motorista} - ${m.viagens} viagens - R$ ${m.ganhos.toFixed(2)}\n`;
+                        });
+                    } else {
+                        topText = "Nenhuma viagem registrada neste período";
+                    }
+
+                    const meses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+                    const mesNome = meses[parseInt(mes) - 1];
+
+                    const embed = new EmbedBuilder()
+                        .setTitle(`📅 RELATÓRIO MENSAL — ${mesNome}/${ano}`)
+                        .setColor("Blue")
+                        .setDescription("Resumo completo do desempenho mensal")
+                        .addFields(
+                            { name: "🚚 Total de Viagens", value: `${totalViagens} viagens`, inline: true },
+                            { name: "🛣️ Km Rodados", value: `${totalKm.toLocaleString('pt-BR')} km`, inline: true },
+                            { name: "💰 Receita", value: `R$ ${totalValor.toFixed(2)}`, inline: true },
+                            { name: "⚠️ Prejuízos", value: `R$ ${totalPrejuizo.toFixed(2)}`, inline: true },
+                            { name: "💵 Lucro Líquido", value: `R$ ${lucroLiquido.toFixed(2)}`, inline: true },
+                            { name: "📊 Média/Viagem", value: `R$ ${totalViagens > 0 ? (totalValor / totalViagens).toFixed(2) : '0.00'}`, inline: true },
+                            { name: "🏆 Top 5 Motoristas do Mês", value: topText, inline: false }
+                        )
+                        .setFooter({ text: `Relatório de ${mesNome}/${ano}` })
+                        .setTimestamp();
+
+                    msg.reply({ embeds: [embed] });
+                });
+            });
+        });
+    }
+
+    if (cmd === "filtrar-viagens") {
+        if (!msg.member.permissions.has(PermissionFlagsBits.Administrator)) {
+            return msg.reply("❌ Apenas administradores podem filtrar viagens.");
+        }
+
+        const dataInicio = args[0];
+        const dataFim = args[1];
+
+        if (!dataInicio || !dataFim) {
+            return msg.reply("❌ **Uso correto:** `!filtrar-viagens DATA_INICIO DATA_FIM`\n**Exemplo:** `!filtrar-viagens 2024-01-01 2024-12-31`\n**Formato:** AAAA-MM-DD");
+        }
+
+        db.all(`
+            SELECT * FROM viagens
+            WHERE date(data_aprovacao) BETWEEN ? AND ?
+            ORDER BY data_aprovacao DESC
+        `, [dataInicio, dataFim], (err, rows) => {
+            if (err || !rows || rows.length === 0) {
+                return msg.reply(`📋 Nenhuma viagem encontrada entre ${dataInicio} e ${dataFim}.`);
+            }
+
+            let texto = "";
+            let totalValor = 0;
+            let totalKm = 0;
+
+            rows.forEach(r => {
+                const data = new Date(r.data_aprovacao).toLocaleDateString('pt-BR');
+                texto += `**#${r.id}** | ${r.motorista} | ${r.origem} → ${r.destino} | ${r.distancia}km | R$ ${r.valor.toFixed(2)} | ${data}\n`;
+                totalValor += r.valor;
+                totalKm += r.distancia;
+
+                if (texto.length > 3500) {
+                    texto += `\n*... e mais ${rows.length - rows.indexOf(r) - 1} viagens*`;
+                    return;
+                }
+            });
+
+            const embed = new EmbedBuilder()
+                .setTitle(`📅 VIAGENS — ${dataInicio} a ${dataFim}`)
+                .setColor("Green")
+                .setDescription(texto)
+                .addFields(
+                    { name: "Total de Viagens", value: `${rows.length}`, inline: true },
+                    { name: "Total Km", value: `${totalKm.toLocaleString('pt-BR')} km`, inline: true },
+                    { name: "Total Valor", value: `R$ ${totalValor.toFixed(2)}`, inline: true }
+                )
+                .setTimestamp();
+
+            msg.reply({ embeds: [embed] });
+        });
+    }
+
+    if (cmd === "rotas-populares") {
+        if (!msg.member.permissions.has(PermissionFlagsBits.Administrator)) {
+            return msg.reply("❌ Apenas administradores podem ver estatísticas de rotas.");
+        }
+
+        db.all(`
+            SELECT origem, destino, COUNT(*) as total_viagens, SUM(valor) as valor_total, AVG(valor) as valor_medio, SUM(distancia) as km_total
+            FROM viagens
+            GROUP BY origem, destino
+            ORDER BY total_viagens DESC
+            LIMIT 10
+        `, (err, rows) => {
+            if (err || !rows || rows.length === 0) {
+                return msg.reply("📊 Nenhuma rota registrada ainda.");
+            }
+
+            let texto = "";
+            rows.forEach((r, i) => {
+                texto += `**${i + 1}º** ${r.origem} → ${r.destino}\n`;
+                texto += `   🚚 ${r.total_viagens} viagens | 💰 R$ ${r.valor_total.toFixed(2)} | 📈 Média: R$ ${r.valor_medio.toFixed(2)}\n\n`;
+            });
+
+            const embed = new EmbedBuilder()
+                .setTitle("🗺️ ROTAS MAIS POPULARES — BAHIA LT")
+                .setColor("Purple")
+                .setDescription(texto)
+                .setFooter({ text: "Top 10 rotas por número de viagens" })
+                .setTimestamp();
+
+            msg.reply({ embeds: [embed] });
+        });
+    }
+
+    if (cmd === "historico-motorista") {
+        if (!msg.member.permissions.has(PermissionFlagsBits.Administrator)) {
+            return msg.reply("❌ Apenas administradores podem ver histórico completo.");
+        }
+
+        const matricula = args[0];
+        if (!matricula) {
+            return msg.reply("❌ **Uso correto:** `!historico-motorista MATRICULA`\n**Exemplo:** `!historico-motorista 00001`");
+        }
+
+        db.get(`SELECT * FROM motoristas_aprovados WHERE id = ?`, [parseInt(matricula)], (err, motorista) => {
+            if (!motorista) {
+                return msg.reply("❌ Motorista não encontrado.");
+            }
+
+            db.all(`SELECT * FROM viagens WHERE motorista_id = ? ORDER BY data_aprovacao DESC`, [motorista.usuario_id], (err, viagens) => {
+                db.all(`SELECT * FROM prejuizos WHERE motorista_id = ? ORDER BY data_aprovacao DESC`, [motorista.usuario_id], (err, prejuizos) => {
+
+                    let totalViagens = viagens?.length || 0;
+                    let totalGanhos = 0;
+                    let totalKm = 0;
+                    let totalPrejuizos = 0;
+
+                    viagens?.forEach(v => {
+                        totalGanhos += v.valor;
+                        totalKm += v.distancia;
+                    });
+
+                    prejuizos?.forEach(p => {
+                        totalPrejuizos += p.valor_prejuizo;
+                    });
+
+                    const lucroLiquido = totalGanhos - totalPrejuizos;
+
+                    const embed = new EmbedBuilder()
+                        .setTitle(`📋 HISTÓRICO COMPLETO — ${motorista.nome_completo}`)
+                        .setColor("Blue")
+                        .setDescription(`**Matrícula:** #${motorista.id.toString().padStart(5, '0')}\n**Cidade:** ${motorista.cidade}\n**Veículo:** ${motorista.veiculo_modelo} (${motorista.veiculo_placa})`)
+                        .addFields(
+                            { name: "🚚 Total de Viagens", value: `${totalViagens}`, inline: true },
+                            { name: "🛣️ Km Rodados", value: `${totalKm.toLocaleString('pt-BR')} km`, inline: true },
+                            { name: "💰 Ganhos Totais", value: `R$ ${totalGanhos.toFixed(2)}`, inline: true },
+                            { name: "⚠️ Prejuízos", value: `R$ ${totalPrejuizos.toFixed(2)}`, inline: true },
+                            { name: "💵 Lucro Líquido", value: `R$ ${lucroLiquido.toFixed(2)}`, inline: true },
+                            { name: "📊 Média/Viagem", value: `R$ ${totalViagens > 0 ? (totalGanhos / totalViagens).toFixed(2) : '0.00'}`, inline: true }
+                        )
+                        .setFooter({ text: `Motorista desde ${new Date(motorista.data_registro).toLocaleDateString('pt-BR')}` })
+                        .setTimestamp();
+
+                    msg.reply({ embeds: [embed] });
+                });
+            });
+        });
+    }
+
     if (cmd === "ajuda" || cmd === "help") {
         const isAdmin = msg.member.permissions.has(PermissionFlagsBits.Administrator);
 
@@ -833,7 +1105,8 @@ Você tem **5 minutos** para enviar as informações.`);
         if (isAdmin) {
             embed.addFields(
                 { name: "⚙️ Admin - Consultas", value: "`!pendentes` - Ver notas pendentes\n`!prejuizos-pendentes` - Ver prejuízos pendentes\n`!registros-pendentes` - Ver registros pendentes\n`!motoristas` - Listar motoristas ativos" },
-                { name: "⚙️ Admin - Registros", value: "`!registrar-nf MATRICULA ORIGEM DESTINO CARGA KM VALOR` - Registrar NF para motorista\n`!registrar-prejuizo MATRICULA ORIGEM DESTINO CARGA KM VALOR MOTIVO` - Registrar prejuízo para motorista\n`!desativar-motorista ID` - Desativar motorista" }
+                { name: "⚙️ Admin - Registros", value: "`!registrar-nf MATRICULA ORIGEM DESTINO CARGA KM VALOR` - Registrar NF para motorista\n`!registrar-prejuizo MATRICULA ORIGEM DESTINO CARGA KM VALOR MOTIVO` - Registrar prejuízo para motorista\n`!desativar-motorista ID` - Desativar motorista" },
+                { name: "📊 Admin - Relatórios", value: "`!dashboard` - Dashboard geral\n`!relatorio-mensal MES [ANO]` - Relatório mensal\n`!filtrar-viagens DATA_INICIO DATA_FIM` - Filtrar por período\n`!rotas-populares` - Rotas mais usadas\n`!historico-motorista MATRICULA` - Histórico completo" }
             );
         }
 
