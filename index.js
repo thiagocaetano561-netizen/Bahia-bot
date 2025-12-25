@@ -396,6 +396,154 @@ Você tem **5 minutos** para enviar as informações.`);
         });
     }
 
+    if (cmd === "registrar-nf") {
+        if (!msg.member.permissions.has(PermissionFlagsBits.Administrator)) {
+            return msg.reply("❌ Apenas administradores podem registrar notas para motoristas.");
+        }
+
+        const motoristaMatricula = args[0];
+        const origem = args[1];
+        const destino = args[2];
+        const carga = args[3];
+        const distancia = Number(args[4]);
+        const valor = Number(args[5]);
+
+        if (!motoristaMatricula || !origem || !destino || !carga || !distancia || !valor) {
+            return msg.reply("❌ **Uso correto:** `!registrar-nf MATRICULA ORIGEM DESTINO CARGA KM VALOR`\n**Exemplo:** `!registrar-nf 00001 Salvador Recife Madeira 850 1500`");
+        }
+
+        if (isNaN(distancia) || isNaN(valor) || distancia <= 0 || valor <= 0) {
+            return msg.reply("❌ Distância e valor devem ser números positivos!");
+        }
+
+        db.get(`SELECT * FROM motoristas_aprovados WHERE id = ? AND status = 'ativo'`, [parseInt(motoristaMatricula)], (err, motorista) => {
+            if (err || !motorista) {
+                return msg.reply("❌ Motorista não encontrado ou inativo. Use `!motoristas` para ver a lista.");
+            }
+
+            db.run(
+                `INSERT INTO viagens_pendentes(motorista, motorista_id, origem, destino, carga, distancia, valor)
+                 VALUES (?,?,?,?,?,?,?)`,
+                [motorista.usuario_nome, motorista.usuario_id, origem, destino, carga, distancia, valor],
+                function(err) {
+                    if (err) {
+                        console.error(err);
+                        return msg.reply("❌ Erro ao registrar nota fiscal.");
+                    }
+
+                    const notaId = this.lastID;
+                    const canalAprovacao = msg.guild.channels.cache.get(CANAL_APROVACAO);
+                    if (canalAprovacao) {
+                        const embed = new EmbedBuilder()
+                            .setTitle("⏳ NOTA FISCAL PENDENTE — BAHIA LT")
+                            .setColor("Orange")
+                            .setDescription(`**ID da Nota:** #${notaId}\n📋 Aguardando aprovação de administrador\n*Registrado por: ${msg.author.username}*`)
+                            .addFields(
+                                { name: "👤 Motorista", value: `${motorista.nome_completo} (${motorista.usuario_nome})`, inline: true },
+                                { name: "📛 Matrícula", value: `#${motorista.id.toString().padStart(5, '0')}`, inline: true },
+                                { name: "📍 Origem", value: origem, inline: true },
+                                { name: "📍 Destino", value: destino, inline: true },
+                                { name: "📦 Carga", value: carga, inline: true },
+                                { name: "🛣️ Distância", value: `${distancia} km`, inline: true },
+                                { name: "💵 Valor", value: `R$ ${valor.toFixed(2)}`, inline: true }
+                            )
+                            .setTimestamp();
+
+                        const aprovar = new ButtonBuilder()
+                            .setCustomId(`aprovar_nf_${notaId}`)
+                            .setLabel("✅ Aprovar")
+                            .setStyle(ButtonStyle.Success);
+
+                        const reprovar = new ButtonBuilder()
+                            .setCustomId(`reprovar_nf_${notaId}`)
+                            .setLabel("❌ Reprovar")
+                            .setStyle(ButtonStyle.Danger);
+
+                        const row = new ActionRowBuilder().addComponents(aprovar, reprovar);
+                        canalAprovacao.send({ embeds: [embed], components: [row] });
+                    }
+
+                    msg.reply(`✅ Nota fiscal #${notaId} registrada para **${motorista.nome_completo}**! Aguardando aprovação.`);
+                }
+            );
+        });
+    }
+
+    if (cmd === "registrar-prejuizo") {
+        if (!msg.member.permissions.has(PermissionFlagsBits.Administrator)) {
+            return msg.reply("❌ Apenas administradores podem registrar prejuízos para motoristas.");
+        }
+
+        const motoristaMatricula = args[0];
+        const origem = args[1];
+        const destino = args[2];
+        const carga = args[3];
+        const distancia = Number(args[4]);
+        const valorPrejuizo = Number(args[5]);
+        const motivo = args.slice(6).join(" ");
+
+        if (!motoristaMatricula || !origem || !destino || !carga || !distancia || !valorPrejuizo || !motivo) {
+            return msg.reply("❌ **Uso correto:** `!registrar-prejuizo MATRICULA ORIGEM DESTINO CARGA KM VALOR MOTIVO`\n**Exemplo:** `!registrar-prejuizo 00001 Salvador Recife Madeira 850 500 Carga danificada`");
+        }
+
+        if (isNaN(distancia) || isNaN(valorPrejuizo) || distancia <= 0 || valorPrejuizo <= 0) {
+            return msg.reply("❌ Distância e valor devem ser números positivos!");
+        }
+
+        db.get(`SELECT * FROM motoristas_aprovados WHERE id = ? AND status = 'ativo'`, [parseInt(motoristaMatricula)], (err, motorista) => {
+            if (err || !motorista) {
+                return msg.reply("❌ Motorista não encontrado ou inativo. Use `!motoristas` para ver a lista.");
+            }
+
+            db.run(
+                `INSERT INTO prejuizos_pendentes(motorista, motorista_id, origem, destino, carga, distancia, valor_prejuizo, motivo)
+                 VALUES (?,?,?,?,?,?,?,?)`,
+                [motorista.usuario_nome, motorista.usuario_id, origem, destino, carga, distancia, valorPrejuizo, motivo],
+                function(err) {
+                    if (err) {
+                        console.error(err);
+                        return msg.reply("❌ Erro ao registrar prejuízo.");
+                    }
+
+                    const prejuizoId = this.lastID;
+                    const canalAprovacao = msg.guild.channels.cache.get(CANAL_APROVACAO);
+                    if (canalAprovacao) {
+                        const embed = new EmbedBuilder()
+                            .setTitle("⚠️ PREJUÍZO PENDENTE — BAHIA LT")
+                            .setColor("Red")
+                            .setDescription(`**ID do Prejuízo:** #${prejuizoId}\n📋 Aguardando aprovação de administrador\n*Registrado por: ${msg.author.username}*`)
+                            .addFields(
+                                { name: "👤 Motorista", value: `${motorista.nome_completo} (${motorista.usuario_nome})`, inline: true },
+                                { name: "📛 Matrícula", value: `#${motorista.id.toString().padStart(5, '0')}`, inline: true },
+                                { name: "📍 Origem", value: origem, inline: true },
+                                { name: "📍 Destino", value: destino, inline: true },
+                                { name: "📦 Carga", value: carga, inline: true },
+                                { name: "🛣️ Distância", value: `${distancia} km`, inline: true },
+                                { name: "💸 Prejuízo", value: `R$ ${valorPrejuizo.toFixed(2)}`, inline: true },
+                                { name: "📝 Motivo", value: motivo, inline: false }
+                            )
+                            .setTimestamp();
+
+                        const aprovar = new ButtonBuilder()
+                            .setCustomId(`aprovar_prejuizo_${prejuizoId}`)
+                            .setLabel("✅ Aprovar Prejuízo")
+                            .setStyle(ButtonStyle.Success);
+
+                        const reprovar = new ButtonBuilder()
+                            .setCustomId(`reprovar_prejuizo_${prejuizoId}`)
+                            .setLabel("❌ Reprovar")
+                            .setStyle(ButtonStyle.Danger);
+
+                        const row = new ActionRowBuilder().addComponents(aprovar, reprovar);
+                        canalAprovacao.send({ embeds: [embed], components: [row] });
+                    }
+
+                    msg.reply(`⚠️ Prejuízo #${prejuizoId} registrado para **${motorista.nome_completo}**! Aguardando aprovação.`);
+                }
+            );
+        });
+    }
+
     if (cmd === "nf") {
         const motorista = msg.author.username;
         const motoristaId = msg.author.id;
@@ -670,6 +818,8 @@ Você tem **5 minutos** para enviar as informações.`);
     }
 
     if (cmd === "ajuda" || cmd === "help") {
+        const isAdmin = msg.member.permissions.has(PermissionFlagsBits.Administrator);
+
         const embed = new EmbedBuilder()
             .setTitle("📖 COMANDOS DO BOT — BAHIA LT")
             .setColor("Blue")
@@ -677,10 +827,17 @@ Você tem **5 minutos** para enviar as informações.`);
             .addFields(
                 { name: "👤 Registro de Motorista", value: "`!registrar` - Cadastrar-se como motorista\n`!cracha` - Gerar seu crachá virtual" },
                 { name: "🧾 Notas Fiscais", value: "`!nf ORIGEM DESTINO CARGA KM VALOR` - Enviar nota fiscal\n`!minhas` - Ver suas viagens aprovadas\n`!ranking` - Ver ranking de motoristas" },
-                { name: "⚠️ Prejuízos", value: "`!prejuizo ORIGEM DESTINO CARGA KM VALOR MOTIVO` - Registrar prejuízo\n`!meus-prejuizos` - Ver seus prejuízos registrados" },
-                { name: "⚙️ Admin", value: "`!pendentes` - Ver notas pendentes\n`!prejuizos-pendentes` - Ver prejuízos pendentes\n`!registros-pendentes` - Ver registros pendentes\n`!motoristas` - Listar motoristas ativos\n`!desativar-motorista ID` - Desativar motorista" }
-            )
-            .setFooter({ text: "Todas as ações precisam ser aprovadas por administradores" });
+                { name: "⚠️ Prejuízos", value: "`!prejuizo ORIGEM DESTINO CARGA KM VALOR MOTIVO` - Registrar prejuízo\n`!meus-prejuizos` - Ver seus prejuízos registrados" }
+            );
+
+        if (isAdmin) {
+            embed.addFields(
+                { name: "⚙️ Admin - Consultas", value: "`!pendentes` - Ver notas pendentes\n`!prejuizos-pendentes` - Ver prejuízos pendentes\n`!registros-pendentes` - Ver registros pendentes\n`!motoristas` - Listar motoristas ativos" },
+                { name: "⚙️ Admin - Registros", value: "`!registrar-nf MATRICULA ORIGEM DESTINO CARGA KM VALOR` - Registrar NF para motorista\n`!registrar-prejuizo MATRICULA ORIGEM DESTINO CARGA KM VALOR MOTIVO` - Registrar prejuízo para motorista\n`!desativar-motorista ID` - Desativar motorista" }
+            );
+        }
+
+        embed.setFooter({ text: isAdmin ? "Use !motoristas para ver as matrículas" : "Todas as ações precisam ser aprovadas por administradores" });
 
         msg.reply({ embeds: [embed] });
     }
