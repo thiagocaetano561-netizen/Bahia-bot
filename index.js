@@ -123,6 +123,39 @@ function criarTabelas() {
             data_registro TEXT,
             status TEXT DEFAULT 'ativo'
         )
+    `);
+
+    db.run(`
+        CREATE TABLE IF NOT EXISTS prejuizos_pendentes(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            motorista TEXT,
+            motorista_id TEXT,
+            origem TEXT,
+            destino TEXT,
+            carga TEXT,
+            distancia INTEGER,
+            valor_prejuizo REAL,
+            motivo TEXT,
+            data TEXT DEFAULT (datetime('now','localtime')),
+            status TEXT DEFAULT 'pendente'
+        )
+    `);
+
+    db.run(`
+        CREATE TABLE IF NOT EXISTS prejuizos(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            motorista TEXT,
+            motorista_id TEXT,
+            origem TEXT,
+            destino TEXT,
+            carga TEXT,
+            distancia INTEGER,
+            valor_prejuizo REAL,
+            motivo TEXT,
+            data TEXT,
+            aprovado_por TEXT,
+            data_aprovacao TEXT DEFAULT (datetime('now','localtime'))
+        )
     `, () => {
         console.log("✅ Tabelas criadas/atualizadas com sucesso!");
     });
@@ -426,6 +459,71 @@ Você tem **5 minutos** para enviar as informações.`);
         );
     }
 
+    if (cmd === "prejuizo" || cmd === "prejuízo") {
+        const motorista = msg.author.username;
+        const motoristaId = msg.author.id;
+        const origem = args[0];
+        const destino = args[1];
+        const carga = args[2];
+        const distancia = Number(args[3]);
+        const valorPrejuizo = Number(args[4]);
+        const motivo = args.slice(5).join(" ");
+
+        if (!origem || !destino || !carga || !distancia || !valorPrejuizo || !motivo) {
+            return msg.reply("❌ **Uso correto:** `!prejuizo ORIGEM DESTINO CARGA KM VALOR MOTIVO`\n**Exemplo:** `!prejuizo Salvador Recife Madeira 850 500 Carga danificada no caminho`");
+        }
+
+        if (isNaN(distancia) || isNaN(valorPrejuizo) || distancia <= 0 || valorPrejuizo <= 0) {
+            return msg.reply("❌ Distância e valor do prejuízo devem ser números positivos!");
+        }
+
+        db.run(
+            `INSERT INTO prejuizos_pendentes(motorista, motorista_id, origem, destino, carga, distancia, valor_prejuizo, motivo)
+             VALUES (?,?,?,?,?,?,?,?)`,
+            [motorista, motoristaId, origem, destino, carga, distancia, valorPrejuizo, motivo],
+            function(err) {
+                if (err) {
+                    console.error(err);
+                    return msg.reply("❌ Erro ao registrar prejuízo.");
+                }
+
+                const prejuizoId = this.lastID;
+                const canalAprovacao = msg.guild.channels.cache.get(CANAL_APROVACAO);
+                if (canalAprovacao) {
+                    const embed = new EmbedBuilder()
+                        .setTitle("⚠️ PREJUÍZO PENDENTE — BAHIA LT")
+                        .setColor("Red")
+                        .setDescription(`**ID do Prejuízo:** #${prejuizoId}\n\n📋 Aguardando aprovação de administrador`)
+                        .addFields(
+                            { name: "👤 Motorista", value: motorista, inline: true },
+                            { name: "📍 Origem", value: origem, inline: true },
+                            { name: "📍 Destino", value: destino, inline: true },
+                            { name: "📦 Carga", value: carga, inline: true },
+                            { name: "🛣️ Distância", value: `${distancia} km`, inline: true },
+                            { name: "💸 Prejuízo", value: `R$ ${valorPrejuizo.toFixed(2)}`, inline: true },
+                            { name: "📝 Motivo", value: motivo, inline: false }
+                        )
+                        .setTimestamp();
+
+                    const aprovar = new ButtonBuilder()
+                        .setCustomId(`aprovar_prejuizo_${prejuizoId}`)
+                        .setLabel("✅ Aprovar Prejuízo")
+                        .setStyle(ButtonStyle.Success);
+
+                    const reprovar = new ButtonBuilder()
+                        .setCustomId(`reprovar_prejuizo_${prejuizoId}`)
+                        .setLabel("❌ Reprovar")
+                        .setStyle(ButtonStyle.Danger);
+
+                    const row = new ActionRowBuilder().addComponents(aprovar, reprovar);
+                    canalAprovacao.send({ embeds: [embed], components: [row] });
+                }
+
+                msg.reply(`⚠️ Prejuízo #${prejuizoId} enviado para aprovação! Aguarde um administrador validar.`);
+            }
+        );
+    }
+
     if (cmd === "pendentes") {
         if (!msg.member.permissions.has(PermissionFlagsBits.Administrator)) {
             return msg.reply("❌ Apenas administradores podem ver notas pendentes.");
@@ -479,7 +577,7 @@ Você tem **5 minutos** para enviar as informações.`);
 
     if (cmd === "minhas") {
         const motoristaId = msg.author.id;
-        
+
         db.all(
             `SELECT * FROM viagens WHERE motorista_id = ? ORDER BY data_aprovacao DESC LIMIT 10`,
             [motoristaId],
@@ -513,15 +611,74 @@ Você tem **5 minutos** para enviar as informações.`);
         );
     }
 
+    if (cmd === "meus-prejuizos" || cmd === "prejuizos") {
+        const motoristaId = msg.author.id;
+
+        db.all(
+            `SELECT * FROM prejuizos WHERE motorista_id = ? ORDER BY data_aprovacao DESC LIMIT 10`,
+            [motoristaId],
+            (err, rows) => {
+                if (err || !rows || rows.length === 0) {
+                    return msg.reply("📋 Você não tem prejuízos registrados.");
+                }
+
+                let texto = "";
+                let totalPrejuizos = 0;
+
+                rows.forEach(r => {
+                    texto += `**#${r.id}** | ${r.origem} → ${r.destino} | R$ -${r.valor_prejuizo.toFixed(2)}\n📝 ${r.motivo}\n\n`;
+                    totalPrejuizos += r.valor_prejuizo;
+                });
+
+                const embed = new EmbedBuilder()
+                    .setTitle("⚠️ MEUS PREJUÍZOS — BAHIA LT")
+                    .setColor("Red")
+                    .setDescription(texto)
+                    .addFields(
+                        { name: "Total de Prejuízos", value: `R$ ${totalPrejuizos.toFixed(2)}`, inline: true }
+                    )
+                    .setTimestamp();
+
+                msg.reply({ embeds: [embed] });
+            }
+        );
+    }
+
+    if (cmd === "prejuizos-pendentes") {
+        if (!msg.member.permissions.has(PermissionFlagsBits.Administrator)) {
+            return msg.reply("❌ Apenas administradores podem ver prejuízos pendentes.");
+        }
+
+        db.all(`SELECT * FROM prejuizos_pendentes WHERE status = 'pendente' ORDER BY id DESC`, (err, rows) => {
+            if (err || !rows || rows.length === 0) {
+                return msg.reply("✅ Não há prejuízos pendentes no momento.");
+            }
+
+            let texto = "";
+            rows.forEach(r => {
+                texto += `**#${r.id}** - ${r.motorista} | ${r.origem} → ${r.destino} | R$ -${r.valor_prejuizo.toFixed(2)}\n📝 ${r.motivo}\n\n`;
+            });
+
+            const embed = new EmbedBuilder()
+                .setTitle("⚠️ PREJUÍZOS PENDENTES")
+                .setColor("Red")
+                .setDescription(texto || "Nenhum prejuízo pendente.")
+                .setTimestamp();
+
+            msg.reply({ embeds: [embed] });
+        });
+    }
+
     if (cmd === "ajuda" || cmd === "help") {
         const embed = new EmbedBuilder()
             .setTitle("📖 COMANDOS DO BOT — BAHIA LT")
             .setColor("Blue")
-            .setDescription("Sistema de gerenciamento de notas fiscais e motoristas")
+            .setDescription("Sistema de gerenciamento de notas fiscais, prejuízos e motoristas")
             .addFields(
                 { name: "👤 Registro de Motorista", value: "`!registrar` - Cadastrar-se como motorista\n`!cracha` - Gerar seu crachá virtual" },
                 { name: "🧾 Notas Fiscais", value: "`!nf ORIGEM DESTINO CARGA KM VALOR` - Enviar nota fiscal\n`!minhas` - Ver suas viagens aprovadas\n`!ranking` - Ver ranking de motoristas" },
-                { name: "⚙️ Admin", value: "`!pendentes` - Ver notas pendentes\n`!registros-pendentes` - Ver registros pendentes\n`!motoristas` - Listar motoristas ativos\n`!desativar-motorista ID` - Desativar motorista" }
+                { name: "⚠️ Prejuízos", value: "`!prejuizo ORIGEM DESTINO CARGA KM VALOR MOTIVO` - Registrar prejuízo\n`!meus-prejuizos` - Ver seus prejuízos registrados" },
+                { name: "⚙️ Admin", value: "`!pendentes` - Ver notas pendentes\n`!prejuizos-pendentes` - Ver prejuízos pendentes\n`!registros-pendentes` - Ver registros pendentes\n`!motoristas` - Listar motoristas ativos\n`!desativar-motorista ID` - Desativar motorista" }
             )
             .setFooter({ text: "Todas as ações precisam ser aprovadas por administradores" });
 
@@ -707,6 +864,80 @@ Você pode tentar novamente usando \`!registrar\` após corrigir as informaçõe
                             .setColor("Red")
                             .setTitle("❌ NOTA FISCAL REPROVADA — BAHIA LT")
                             .setDescription(`**ID da Nota:** #${id}\n\n❌ Reprovada por ${interaction.user.username}`)
+                    ],
+                    components: []
+                });
+            }
+        });
+    }
+
+    if (tipo === "prejuizo") {
+        db.get(`SELECT * FROM prejuizos_pendentes WHERE id = ? AND status = 'pendente'`, [id], (err, prejuizo) => {
+            if (err || !prejuizo) {
+                return interaction.reply({ content: "❌ Prejuízo não encontrado ou já foi processado.", ephemeral: true });
+            }
+
+            if (acao === "aprovar") {
+                db.run(
+                    `INSERT INTO prejuizos(motorista, motorista_id, origem, destino, carga, distancia, valor_prejuizo, motivo, data, aprovado_por)
+                     VALUES (?,?,?,?,?,?,?,?,?,?)`,
+                    [prejuizo.motorista, prejuizo.motorista_id, prejuizo.origem, prejuizo.destino, prejuizo.carga, prejuizo.distancia, prejuizo.valor_prejuizo, prejuizo.motivo, prejuizo.data, interaction.user.username]
+                );
+
+                db.run(`
+                    INSERT INTO ranking(motorista, motorista_id, viagens, ganhos)
+                    VALUES (?,?,0,?)
+                    ON CONFLICT(motorista_id)
+                    DO UPDATE SET ganhos = ganhos - excluded.ganhos
+                `, [prejuizo.motorista, prejuizo.motorista_id, prejuizo.valor_prejuizo]);
+
+                db.run(`UPDATE prejuizos_pendentes SET status = 'aprovado' WHERE id = ?`, [id]);
+
+                db.run(`INSERT INTO logs(acao, motorista, admin, detalhes) VALUES (?,?,?,?)`,
+                    ['PREJUIZO_APROVADO', prejuizo.motorista, interaction.user.username, `Prejuízo #${id} aprovado - R$ ${prejuizo.valor_prejuizo.toFixed(2)}`]);
+
+                const canalNotas = interaction.guild.channels.cache.get(CANAL_NOTAS);
+                if (canalNotas) {
+                    const embed = new EmbedBuilder()
+                        .setTitle("⚠️ PREJUÍZO APROVADO — BAHIA LT")
+                        .setColor("Red")
+                        .setDescription(`**ID do Prejuízo:** #${id}\n✅ Aprovado por ${interaction.user.username}`)
+                        .addFields(
+                            { name: "👤 Motorista", value: prejuizo.motorista, inline: true },
+                            { name: "📍 Origem", value: prejuizo.origem, inline: true },
+                            { name: "📍 Destino", value: prejuizo.destino, inline: true },
+                            { name: "📦 Carga", value: prejuizo.carga, inline: true },
+                            { name: "🛣️ Distância", value: `${prejuizo.distancia} km`, inline: true },
+                            { name: "💸 Prejuízo", value: `R$ ${prejuizo.valor_prejuizo.toFixed(2)}`, inline: true },
+                            { name: "📝 Motivo", value: prejuizo.motivo, inline: false }
+                        )
+                        .setTimestamp();
+
+                    canalNotas.send({ embeds: [embed] });
+                }
+
+                interaction.update({
+                    embeds: [
+                        EmbedBuilder.from(interaction.message.embeds[0])
+                            .setColor("Green")
+                            .setTitle("✅ PREJUÍZO APROVADO — BAHIA LT")
+                            .setDescription(`**ID do Prejuízo:** #${id}\n\n✅ Aprovado por ${interaction.user.username}`)
+                    ],
+                    components: []
+                });
+
+            } else if (acao === "reprovar") {
+                db.run(`UPDATE prejuizos_pendentes SET status = 'reprovado' WHERE id = ?`, [id]);
+
+                db.run(`INSERT INTO logs(acao, motorista, admin, detalhes) VALUES (?,?,?,?)`,
+                    ['PREJUIZO_REPROVADO', prejuizo.motorista, interaction.user.username, `Prejuízo #${id} reprovado`]);
+
+                interaction.update({
+                    embeds: [
+                        EmbedBuilder.from(interaction.message.embeds[0])
+                            .setColor("Grey")
+                            .setTitle("❌ PREJUÍZO REPROVADO — BAHIA LT")
+                            .setDescription(`**ID do Prejuízo:** #${id}\n\n❌ Reprovado por ${interaction.user.username}`)
                     ],
                     components: []
                 });
